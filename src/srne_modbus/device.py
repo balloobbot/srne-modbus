@@ -94,6 +94,39 @@ class SrneInverter:
             fresh.notify()
         return UpdateReport(updated, failed)
 
+    async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
+        """Every register this device reads, undecoded — for diagnostics.
+
+        The serial blocks come along: a poll never reads them again, and they
+        are the first thing an issue report is read for. A polled component
+        that refuses raises, since there the error is the point. Setup is not
+        needed — the polled set is the same on every SRNE — so this also works
+        on a device that never got that far.
+        """
+        raw = await self._async_read_serial_raw()
+        for name in _POLLED:
+            component: SrneComponent = getattr(self, name)
+            for space, values in (await component.async_read_raw()).items():
+                raw.setdefault(space, {}).update(values)
+        return {space: dict(sorted(values.items())) for space, values in raw.items()}
+
+    async def _async_read_serial_raw(self) -> dict[str, dict[int, int | bool]]:
+        """Both candidate serial blocks, skipping the one this device refuses.
+
+        A device answers at one of the two addresses and refuses the other, so
+        unlike in a component read a refusal here is ordinary.
+        """
+        raw: dict[str, dict[int, int | bool]] = {}
+        for address in (SERIAL_ADDRESS, SERIAL_ADDRESS_FALLBACK):
+            block = DeviceInformation(self._unit, base_offset=address)
+            try:
+                read = await block.async_read_raw()
+            except _ABSENT:
+                continue
+            for space, values in read.items():
+                raw.setdefault(space, {}).update(values)
+        return raw
+
     async def _async_read_serial_number(self) -> str | None:
         """Try the primary block, then the fallback one.
 

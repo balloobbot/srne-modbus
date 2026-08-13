@@ -173,3 +173,40 @@ async def test_field_count_matches_upstream(srne: SrneInverter) -> None:
         for component in (srne.charge_controller, srne.inverter)
     )
     assert total == 24
+
+
+async def test_raw_dump_covers_the_serial_block_and_every_polled_field(
+    srne: SrneInverter,
+) -> None:
+    """A dump carries the setup-only serial block, which a poll never reads."""
+    holding = (await srne.async_read_raw())["holding"]
+
+    assert [holding[0x35 + i] for i in range(5)] == ascii_registers(SERIAL)
+    declared = {
+        field.address
+        for component in (srne.charge_controller, srne.inverter)
+        for field in component.declared_fields.values()
+    }
+    assert declared <= set(holding)
+
+
+async def test_raw_dump_skips_a_refused_serial_candidate(
+    srne: SrneInverter, mock_modbus_unit: MockModbusUnit
+) -> None:
+    """A device answers at one of the two addresses and refuses the other."""
+    mock_modbus_unit.fail_read(0x35, IllegalDataAddressError())
+
+    holding = (await srne.async_read_raw())["holding"]
+
+    assert 0x35 not in holding
+    assert set(range(0x300, 0x300 + 20)) <= set(holding)
+
+
+async def test_raw_dump_raises_when_a_polled_component_refuses(
+    srne: SrneInverter, mock_modbus_unit: MockModbusUnit
+) -> None:
+    """Unlike a serial candidate, a refused component block is the report."""
+    mock_modbus_unit.fail_read(0x100, IllegalDataAddressError())
+
+    with pytest.raises(IllegalDataAddressError):
+        await srne.async_read_raw()

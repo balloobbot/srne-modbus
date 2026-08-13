@@ -93,6 +93,20 @@ await device.charge_controller.async_update()
 unsub = device.charge_controller.add_update_listener(refresh_my_entity)
 ```
 
+### Diagnostics
+
+`async_read_raw()` reads the device fresh and returns every register undecoded,
+`{space: {address: value}}`, for an issue report. It covers both candidate serial
+blocks as well as the polled components — a poll never reads the serial again
+after setup — so it also works on a device that never set up. The candidate a
+device refuses is left out; a polled component that refuses raises, since there
+the error is the point.
+
+```python
+raw = await device.async_read_raw()
+print(raw["holding"][0x35])  # the first serial word, if it answered there
+```
+
 ## ASCII framing is not supported
 
 **ASCII-over-TCP is not supported under any circumstance.** This library never
