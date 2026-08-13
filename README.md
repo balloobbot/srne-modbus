@@ -23,7 +23,9 @@ The register map is based on the SRNE plugin of
 
 - **Setup once, then poll.** The serial number cannot change while the inverter
   runs, so it is read by `async_setup()` (which `async_update()` runs for you on
-  the first call). Each later poll is two block reads.
+  the first call). Each later poll is two block reads. A setup read that fails
+  leaves the device unset up so the next poll retries it; only a device that
+  answers "no such register" for both serial blocks settles on no serial.
 - Everything lives in the holding-register space (FC03). This device exposes no
   coils, no input registers and no 32-bit values.
 - **The whole map is read-only.** The upstream plugin declares no numbers,

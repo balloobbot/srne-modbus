@@ -9,10 +9,16 @@ component granularity — here one component per upstream block.
 from __future__ import annotations
 
 import pytest
-from modbus_connection import ModbusConnectionError, ModbusTimeoutError
+from modbus_connection import (
+    IllegalDataAddressError,
+    ModbusConnectionError,
+    ModbusTimeoutError,
+)
 from modbus_connection.mock import MockModbusUnit
 
 from srne_modbus import SrneInverter
+
+from .conftest import HOLDING
 
 
 async def test_a_failed_component_leaves_the_rest_fresh(
@@ -71,3 +77,41 @@ async def test_every_component_refreshes_on_a_healthy_device(
     assert report.complete
     assert report.failed == {}
     assert report.updated == {"charge_controller", "inverter"}
+
+
+async def test_a_transient_serial_failure_retries_instead_of_latching_none(
+    mock_modbus_unit: MockModbusUnit,
+) -> None:
+    """A timed-out serial read must not settle the serial at ``None`` forever."""
+    mock_modbus_unit.holding.update(HOLDING)
+    mock_modbus_unit.fail_read(0x35, ModbusTimeoutError("busy"))
+    device = SrneInverter(mock_modbus_unit)
+
+    with pytest.raises(ModbusTimeoutError):
+        await device.async_update()
+    assert device.serial_number is None
+
+    mock_modbus_unit.fail_read(0x35, None)
+    report = await device.async_update()
+    assert device.serial_number == "MSRNE12345"
+    assert report.complete
+
+
+async def test_a_dead_link_at_setup_raises(mock_modbus_unit: MockModbusUnit) -> None:
+    mock_modbus_unit.holding.update(HOLDING)
+    mock_modbus_unit.fail_requests(ModbusConnectionError("link down"))
+    device = SrneInverter(mock_modbus_unit)
+    with pytest.raises(ModbusConnectionError):
+        await device.async_update()
+
+
+async def test_a_transient_failure_on_the_fallback_block_also_retries(
+    mock_modbus_unit: MockModbusUnit,
+) -> None:
+    """An absent primary block is permanent; a fallback that times out is not."""
+    mock_modbus_unit.holding.update(HOLDING)
+    mock_modbus_unit.fail_read(0x35, IllegalDataAddressError())
+    mock_modbus_unit.fail_read(0x300, ModbusTimeoutError("busy"))
+    device = SrneInverter(mock_modbus_unit)
+    with pytest.raises(ModbusTimeoutError):
+        await device.async_update()

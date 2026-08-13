@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from modbus_connection import ModbusConnectionError, ModbusError
+from modbus_connection import (
+    IllegalDataAddressError,
+    IllegalFunctionError,
+    ModbusConnectionError,
+    ModbusError,
+)
 
 from .charge_controller import ChargeController
 from .device_info import SERIAL_ADDRESS, SERIAL_ADDRESS_FALLBACK, DeviceInformation
@@ -21,6 +26,10 @@ _POLLED = (
     "charge_controller",
     "inverter",
 )
+
+# A serial block the device answers for with one of these is simply not there;
+# anything else (timeout, busy, dead link) means "not this time" and retries.
+_ABSENT = (IllegalDataAddressError, IllegalFunctionError)
 
 
 def _swap_byte_pairs(text: str) -> str:
@@ -50,7 +59,7 @@ class SrneInverter:
 
         Run by the first :meth:`async_update` if the caller does not run it
         itself. A failure leaves the device unset up, so the next update
-        retries.
+        retries rather than latching a serial of ``None`` forever.
         """
         self.serial_number = await self._async_read_serial_number()
         self._polled = list(_POLLED)
@@ -104,6 +113,6 @@ class SrneInverter:
         block = DeviceInformation(self._unit, base_offset=address)
         try:
             await block.async_update()
-        except ModbusError:
+        except _ABSENT:
             return None
         return block.serial_number or None
