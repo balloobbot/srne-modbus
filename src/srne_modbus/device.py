@@ -4,17 +4,23 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from modbus_connection import ModbusError
-from modbus_connection.model import ComponentGroup
+from modbus_connection import ModbusConnectionError, ModbusError
 
 from .charge_controller import ChargeController
 from .device_info import SERIAL_ADDRESS, SERIAL_ADDRESS_FALLBACK, DeviceInformation
 from .inverter import Inverter
+from .model import SrneComponent, UpdateReport
 
 if TYPE_CHECKING:
     from modbus_connection import ModbusUnit
 
 MANUFACTURER = "SRNE Solar"
+
+# Every component attribute a poll refreshes, in read order.
+_POLLED = (
+    "charge_controller",
+    "inverter",
+)
 
 
 def _swap_byte_pairs(text: str) -> str:
@@ -37,19 +43,47 @@ class SrneInverter:
         self.charge_controller = ChargeController(unit)
         self.inverter = Inverter(unit)
         self.serial_number: str | None = None
-        self._group = ComponentGroup(unit, [self.charge_controller, self.inverter])
-        self._setup_done = False
+        self._polled: list[str] | None = None
 
     async def async_setup(self) -> None:
-        """Read the serial number, which cannot change between polls."""
-        self.serial_number = await self._async_read_serial_number()
-        self._setup_done = True
+        """Read the serial number, which cannot change between polls.
 
-    async def async_update(self) -> None:
-        """Refresh every polled measurement; the first call sets the device up."""
-        if not self._setup_done:
+        Run by the first :meth:`async_update` if the caller does not run it
+        itself. A failure leaves the device unset up, so the next update
+        retries.
+        """
+        self.serial_number = await self._async_read_serial_number()
+        self._polled = list(_POLLED)
+
+    async def async_update(self) -> UpdateReport:
+        """Refresh every polled sub-system, one at a time.
+
+        Components are read independently, the way the upstream integration
+        reads its blocks: a sub-system whose read fails keeps its previous
+        values while the rest still refresh. Listeners fire only after every
+        component has been tried, and only on the ones that refreshed. A
+        failure of the link itself raises ``ModbusConnectionError`` instead of
+        reporting. The first call sets the device up.
+        """
+        if self._polled is None:
             await self.async_setup()
-        await self._group.async_update()
+        assert self._polled is not None  # async_setup() builds it
+        updated: set[str] = set()
+        failed: dict[str, ModbusError] = {}
+        for name in self._polled:
+            component: SrneComponent = getattr(self, name)
+            try:
+                await component.async_update(notify=False)
+            except ModbusConnectionError:
+                raise
+            except ModbusError as err:
+                failed[name] = err
+            else:
+                updated.add(name)
+        for name in updated:
+            fresh: SrneComponent = getattr(self, name)
+            fresh.notify()
+        return UpdateReport(updated, failed)
 
     async def _async_read_serial_number(self) -> str | None:
         """Try the primary block, then the fallback one.

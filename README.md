@@ -71,8 +71,20 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Refresh one sub-system on its own — useful because the upstream integration
-tolerates a failed block, whereas a pooled update fails as a whole:
+A poll reads each sub-system independently, the way the upstream integration
+reads its blocks: one slow or refused block does not take the rest of the poll
+with it. `async_update()` returns an `UpdateReport` — a failed component keeps
+its previous values, does not notify its listeners, and is listed by attribute
+name with its error, while every other component refreshes and notifies once
+the whole poll is done. Only a dead link (`ModbusConnectionError`) raises:
+
+```python
+report = await device.async_update()
+for name, error in report.failed.items():
+    print(f"{name} kept its previous values: {error}")
+```
+
+A sub-system can also be refreshed on its own:
 
 ```python
 await device.charge_controller.async_update()

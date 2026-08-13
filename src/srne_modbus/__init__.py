@@ -17,6 +17,7 @@ from .device import MANUFACTURER, SrneInverter
 from .device_info import SERIAL_ADDRESS, SERIAL_ADDRESS_FALLBACK, DeviceInformation
 from .enums import ChargerState, RunMode
 from .inverter import Inverter
+from .model import UpdateReport
 
 __all__ = [
     "MANUFACTURER",
@@ -28,4 +29,5 @@ __all__ = [
     "Inverter",
     "RunMode",
     "SrneInverter",
+    "UpdateReport",
 ]

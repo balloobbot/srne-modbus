@@ -121,7 +121,8 @@ async def test_poll_read_plan(
     """A poll costs two holding-register reads, one per contiguous device block.
 
     The upstream plugin's auto-blocker produces the same two blocks, since its
-    100-register block size splits between 0x111 and 0x210.
+    100-register block size splits between 0x111 and 0x210. Polling each
+    component on its own costs nothing here: each is exactly one of the blocks.
     """
     await srne.async_setup()
     mock_modbus_unit.read_events.clear()

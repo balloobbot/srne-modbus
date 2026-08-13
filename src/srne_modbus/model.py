@@ -11,6 +11,9 @@ default, so the helpers below spell ``signed`` out at every call site.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
+from modbus_connection import ModbusError
 from modbus_connection.model import Component, NumberField, gauge, integer
 
 # The upstream plugin declares ``block_size=100``: it never asks the inverter
@@ -22,6 +25,24 @@ class SrneComponent(Component):
     """An SRNE sub-system: holding registers, capped at the plugin's read width."""
 
     max_span = MAX_READ_SPAN
+
+
+@dataclass(frozen=True)
+class UpdateReport:
+    """What one poll refreshed, by the device's component attribute names.
+
+    A failed component kept its previous values and did not notify; the error
+    that failed it rides along. A dead link is never in here — the update
+    raises ``ModbusConnectionError`` instead of reporting partial silence.
+    """
+
+    updated: set[str]
+    failed: dict[str, ModbusError]
+
+    @property
+    def complete(self) -> bool:
+        """Whether every polled component refreshed."""
+        return not self.failed
 
 
 def voltage(address: int) -> NumberField[float]:
