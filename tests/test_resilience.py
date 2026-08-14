@@ -25,19 +25,21 @@ async def test_a_failed_component_leaves_the_rest_fresh(
     srne: SrneInverter, mock_modbus_unit: MockModbusUnit
 ) -> None:
     await srne.async_update()
-    before = srne.charge_controller.battery_voltage
+    before = srne.inverter.dc_dc_temperature
 
     mock_modbus_unit.holding[0x101] = 480  # battery voltage changes on the device
     mock_modbus_unit.holding[0x220] = 500  # so does the DC-DC temperature
-    mock_modbus_unit.fail_read(0x100, ModbusTimeoutError("slow charge block"))
+    # The charge controller is read first, so it has answered by the time the
+    # inverter times out — a contained timeout, not a silent device.
+    mock_modbus_unit.fail_read(0x210, ModbusTimeoutError("slow inverter block"))
     report = await srne.async_update()
 
     assert not report.complete
-    assert set(report.failed) == {"charge_controller"}
-    assert isinstance(report.failed["charge_controller"], ModbusTimeoutError)
-    assert report.updated == {"inverter"}
-    assert srne.charge_controller.battery_voltage == before
-    assert srne.inverter.dc_dc_temperature == pytest.approx(50.0)
+    assert set(report.failed) == {"inverter"}
+    assert isinstance(report.failed["inverter"], ModbusTimeoutError)
+    assert report.updated == {"charge_controller"}
+    assert srne.inverter.dc_dc_temperature == before
+    assert srne.charge_controller.battery_voltage == pytest.approx(48.0)
 
 
 async def test_listeners_fire_at_the_end_and_only_for_fresh_components(
@@ -68,6 +70,20 @@ async def test_a_dead_link_raises_instead_of_reporting(
     mock_modbus_unit.fail_requests(ModbusConnectionError("link down"))
     with pytest.raises(ModbusConnectionError):
         await srne.async_update()
+
+
+async def test_a_silent_device_raises_on_the_first_timeout(
+    srne: SrneInverter, mock_modbus_unit: MockModbusUnit
+) -> None:
+    """Nothing answered at all, so the poll stops rather than paying N timeouts."""
+    await srne.async_update()
+    mock_modbus_unit.fail_requests(ModbusTimeoutError("asleep"))
+    mock_modbus_unit.read_events.clear()
+
+    with pytest.raises(ModbusTimeoutError):
+        await srne.async_update()
+
+    assert len(mock_modbus_unit.read_events) == 1  # the inverter was never tried
 
 
 async def test_every_component_refreshes_on_a_healthy_device(

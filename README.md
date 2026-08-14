@@ -78,7 +78,9 @@ reads its blocks: one slow or refused block does not take the rest of the poll
 with it. `async_update()` returns an `UpdateReport` — a failed component keeps
 its previous values, does not notify its listeners, and is listed by attribute
 name with its error, while every other component refreshes and notifies once
-the whole poll is done. Only a dead link (`ModbusConnectionError`) raises:
+the whole poll is done. A dead link (`ModbusConnectionError`) raises, and so
+does a timeout before anything has been read (`ModbusTimeoutError`) — a device
+answering nothing is not worth a full timeout per sub-system:
 
 ```python
 report = await device.async_update()
