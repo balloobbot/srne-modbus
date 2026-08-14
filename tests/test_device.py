@@ -190,6 +190,19 @@ async def test_raw_dump_covers_the_serial_block_and_every_polled_field(
     assert declared <= set(holding)
 
 
+async def test_raw_dump_does_not_notify(srne: SrneInverter) -> None:
+    """A download is not a poll: no listener hears it, but the fields refresh."""
+    await srne.async_update()
+    seen: list[str] = []
+    srne.charge_controller.add_update_listener(lambda: seen.append("charge"))
+    srne.inverter.add_update_listener(lambda: seen.append("inverter"))
+
+    await srne.async_read_raw()
+
+    assert seen == []
+    assert srne.charge_controller.battery_voltage == pytest.approx(53.2)
+
+
 async def test_raw_dump_skips_a_refused_serial_candidate(
     srne: SrneInverter, mock_modbus_unit: MockModbusUnit
 ) -> None:

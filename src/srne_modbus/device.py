@@ -101,12 +101,13 @@ class SrneInverter:
         are the first thing an issue report is read for. A polled component
         that refuses raises, since there the error is the point. Setup is not
         needed — the polled set is the same on every SRNE — so this also works
-        on a device that never got that far.
+        on a device that never got that far. Nothing notifies: a download is
+        not a poll.
         """
         raw = await self._async_read_serial_raw()
         for name in _POLLED:
             component: SrneComponent = getattr(self, name)
-            for space, values in (await component.async_read_raw()).items():
+            for space, values in (await component.async_read_raw(notify=False)).items():
                 raw.setdefault(space, {}).update(values)
         return {space: dict(sorted(values.items())) for space, values in raw.items()}
 
